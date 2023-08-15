@@ -1,0 +1,354 @@
+```{r}
+library(readr)
+library(Stat2Data)
+library(dplyr)
+library(BET)
+library(ggplot2)
+library(ggmap)
+library(tidyverse)
+library(bestglm)
+
+Spotify = read_csv("spotidata2.csv")
+
+
+```
+
+
+
+
+```{r}
+Spotify
+
+barselect = filter(Spotify, song_title == "Please Mr. Postman" | song_title == "Hotline Bling")
+barselect$loudness = barselect$loudness*-1
+barselect
+
+
+
+barselect2 <-
+  read.table(
+    text = "Song    Attributes   Rating
+    PleaseMr.Postman  acousticness  0.65600
+    HotlineBling  acousticness   0.00257
+    PleaseMr.Postman  danceability  0.780
+    HotlineBling  danceability   0.896
+    PleaseMr.Postman  energy  0.599
+    HotlineBling  energy   0.623
+    PleaseMr.Postman  instrumentalness  0.000000
+    HotlineBling  instrumentalness   0.000258
+    PleaseMr.Postman  speechiness  0.0329
+    HotlineBling  speechiness   0.0571
+    PleaseMr.Postman  valence  0.967
+    HotlineBling  valence   0.564"
+    , header = TRUE
+    , stringsAsFactors = FALSE
+  )
+
+
+
+
+barselect2
+
+
+
+
+
+
+
+
+ggplot(barselect2, aes(x = Attributes, y = Rating, color = `Song`, fill= `Song`)) +
+ scale_color_manual(values=c("black","black"))  + scale_fill_manual(values=c("darkgreen","lightgreen"))  + 
+theme_gray() + geom_bar(stat = "identity",position = position_dodge()) + labs(x = "Song Attributes", y = "Value",
+ title ="Song Attributes for 'Please Mr. Postman' and 'Hotline Bling'")  +
+  theme(axis.text.x = element_text(angle = 90))
+
+
+```
+
+
+Two questions I can ask - what is th most important predictior to "johns" music taste? Explain where data comes from, and explain in more detail what you mean by this question. As in, Using this to figure out that he hates songs longer than 4 minutes, or he only listens to popular music. What is his thing?
+
+- can I build a predictor to estimate what songs he should add next to his list of liked songs based soley off the data given. 
+
+
+
+
+
+
+
+
+
+```{r}
+
+sigmoid = function(B0, B1, x)
+  {
+    exp(B0+B1*x)/(1+exp(B0+B1*x))
+  }
+
+
+SongMod = glm(target~ danceability, data = Spotify, family=binomial)
+summary(SongMod)
+```
+```{r}
+B0 = summary(SongMod)$coef[1]
+B1 = summary(SongMod)$coef[2]
+
+plot(jitter(target,amount=0.1)~.,data=Spotify)
+curve(sigmoid(B0, B1, x),add=TRUE, col="red")
+
+
+
+
+plot(jitter(target,amount=0.1)~valence,data=Spotify)
+curve(sigmoid(B0, B1, x),add=TRUE, col="red")
+plot(jitter(target,amount=0.1)~energy,data=Spotify)
+curve(sigmoid(B0, B1, x),add=TRUE, col="red")
+```
+```{r}
+anova(SongMod, test="Chisq")
+```
+
+
+
+
+
+
+
+
+
+questoin 2 - best model I can make
+
+```{r}
+Spotify2 = select(Spotify, 2:6, 8:15)
+Spotify2$time_sig3 = ifelse(Spotify2$time_signature==3,1,0)
+Spotify2$time_sig4 = ifelse(Spotify2$time_signature==4,1,0)
+Spotify2$time_sig5 = ifelse(Spotify2$time_signature==5,1,0)
+Spotify3 = select(Spotify2, 1:10, 12, 14:16, 13)
+Spotify3$loudness = Spotify3$loudness *-1
+
+Spotify3
+```
+
+```{r}
+H.bestglm2 <- data.frame(Spotify3)
+
+```
+
+
+
+```{r}
+#bestglmSpotify = bestglm(H.bestglm2, family = binomial)
+#bestglmSpotify$BestModels
+```
+```{r}
+#bestglmSpotify
+```
+```{r}
+
+
+TotalSongMod = glm(target~ acousticness + danceability + duration_ms+ instrumentalness+ loudness+ speechiness+ valence, data = H.bestglm2, family=binomial)
+summary(TotalSongMod)
+
+
+```
+
+```{r}
+fullsongmod = glm(target~ acousticness + danceability + duration_ms+ energy+ liveness+ mode+ instrumentalness+ loudness+ speechiness+ valence+ tempo+time_sig3+time_sig5+time_sig4, data = H.bestglm2, family=binomial)
+summary(fullsongmod)
+```
+```{r}
+anova(TotalSongMod, fullsongmod, test="Chisq")
+1 - pchisq(summary(TotalSongMod)$deviance - summary(fullsongmod)$deviance, 7)
+```
+there is a slight drop in deviance, but due to the p value still lying above 0.05, we cannot reject the null hypothesis and must assume that the reduced model is still a better model. 
+
+
+
+
+```{r}
+# Cross validation illustrated with "Pulse.csv"
+set.seed(9362)
+# reording rows of the data
+rows = sample(nrow(H.bestglm2))
+ShuffledMusic = H.bestglm2[rows,]
+
+# Taking a subset of 80% observations at random as the training data
+MusicTrain=ShuffledMusic[1:1613,]      
+# Using the rest 20% data as testing data
+MusicTest=ShuffledMusic[1614:2017,]   
+
+plot(
+  jitter(target, amount =0.1) ~.,
+  ylim = c(-0.25,1.25), 
+   data=MusicTrain)
+
+
+
+```
+
+
+
+```{r}
+bestglmshuffled = bestglm(MusicTrain, family = binomial)
+bestglmshuffled$BestModels
+bestglmshuffled
+```
+```{r}
+TrainingMod = glm(target~ acousticness + danceability + duration_ms+ instrumentalness+ loudness+ speechiness+ valence, data = MusicTrain, family=binomial)
+summary(TrainingMod)
+
+```
+```{r}
+B0 = summary(TrainingMod)$coef[1]
+B1 = summary(TrainingMod)$coef[2]
+B2 = summary(TrainingMod)$coef[3]
+B3 = summary(TrainingMod)$coef[4]
+B4 = summary(TrainingMod)$coef[5]
+B5 = summary(TrainingMod)$coef[6]
+B6 = summary(TrainingMod)$coef[7]
+B7 = summary(TrainingMod)$coef[8]
+
+
+MusicTrain$probability = exp(B0+B1*MusicTrain$acousticness + B2*MusicTrain$danceability + B3*MusicTrain$duration_ms     + B4*MusicTrain$instrumentalness  + B5*MusicTrain$loudness + B6*MusicTrain$speechiness + B7*MusicTrain$valence)/(1+exp(B0+B1*MusicTrain$acousticness + B2*MusicTrain$danceability + B3*MusicTrain$duration_ms     + B4*MusicTrain$instrumentalness  + B5*MusicTrain$loudness + B6*MusicTrain$speechiness + B7*MusicTrain$valence))
+
+
+```
+
+
+Maybe you can go in and see what percent you are corret on, and at different levels, like % at 90, or % at 50. 
+
+```{r}
+
+MusicTrain$prediction = ifelse(MusicTrain$probability >= 0.5, 1, 0)
+
+MusicTrain$correct = ifelse(MusicTrain$target == MusicTrain$prediction, 1, 0)
+
+sum(MusicTrain$correct == 1)/1613
+
+
+```
+
+
+
+ now testing all the colums in the test dataset
+```{r}
+MusicTest$probability = exp(B0+B1*MusicTest$acousticness + B2*MusicTest$danceability + B3*MusicTest$duration_ms     + B4*MusicTest$instrumentalness  + B5*MusicTest$loudness + B6*MusicTest$speechiness + B7*MusicTest$valence)/(1+exp(B0+B1*MusicTest$acousticness + B2*MusicTest$danceability + B3*MusicTest$duration_ms     + B4*MusicTest$instrumentalness  + B5*MusicTest$loudness + B6*MusicTest$speechiness + B7*MusicTest$valence))
+
+MusicTest$prediction = ifelse(MusicTest$probability >= 0.5, 1, 0)
+
+MusicTest$correct = ifelse(MusicTest$target == MusicTest$prediction, 1, 0)
+
+sum(MusicTest$correct == 1)/404
+
+```
+percent correct test data
+
+
+
+```{r}
+crosscorrtrain=cor(MusicTrain$probability,MusicTrain$target)
+crosscorrtest=cor(MusicTest$probability,MusicTest$target)
+
+crosscorrtrain
+crosscorrtest
+crosscorrtrain^2
+crosscorrtest^2
+
+crosscorrtrain^2  - crosscorrtest^2
+```
+
+Shrinkage of 0.03, talk about why applying this does not really work though. However its still small, but it might be better to look at percent correct as well as type 1 and type 2 errors. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+type 1 and type 2 errors
+
+```{r}
+tableoferrors= matrix(c(1:4), ncol=2, byrow=TRUE)
+ 
+# specify the column names and row names of matrix
+colnames(tableoferrors) = c('Liked','Not Liked')
+rownames(tableoferrors) <- c('Predicted Liked','Predicted Not Liked')
+ 
+MusicTest$correct1 = ifelse(MusicTest$target == MusicTest$prediction & MusicTest$target == 1, 1, 0)
+MusicTest$correct0 = ifelse(MusicTest$target == MusicTest$prediction & MusicTest$target == 0, 1, 0)
+MusicTest$type1 = ifelse(MusicTest$target-MusicTest$prediction == -1, 1, 0)
+MusicTest$type2 = ifelse(MusicTest$target-MusicTest$prediction == 1, 1, 0)
+
+
+
+
+# assign to table
+rightwrong =as.table(tableoferrors)
+rightwrong[1,1] = sum(MusicTest$correct1 == 1)/404
+rightwrong[2,1] = sum(MusicTest$type2 == 1)/404
+rightwrong[1,2] = sum(MusicTest$type1 == 1)/404
+rightwrong[2,2] = sum(MusicTest$correct0 == 1)/404
+# display
+rightwrong
+```
+this is the split for type 1 and 2 errors ( specify which ones, and make this table look nice)
+
+Point our how it is usually taught that type one errors are worse than type two errors. In this scenario where we are building an algorithm to predict which songs you might like, then I might want to have more type 2 errors than type one. The consequence of a type one error is that you hear a song that was recommended to you, and because you won't like it, then you skip it after a minute or so. A type two error means that the algorithm wont even show you the song, because it doesnt think you will like it. A conservative algorithm that has lots of type two errors will skip a lot more songs that you might end up loving rather than an algorithm that does not mind if it shows you a couple more songs that you might not like. I would personally want more type two errors than type one, but this might depend on the person listening. 
+
+If you wanted to decrease the amount of type two errors, you could lower the standards for what the algorithm would predict to be a good song.  If you switch the standard of a liked song to be a predicted probability of 0.4 or higher, these are the new statistics:
+
+```{r}
+MusicTest$prediction = ifelse(MusicTest$probability >= 0.4, 1, 0)
+
+MusicTest$correct = ifelse(MusicTest$target == MusicTest$prediction, 1, 0)
+
+sum(MusicTest$correct == 1)/404
+
+colnames(tableoferrors) = c('Liked','Not Liked')
+rownames(tableoferrors) <- c('Predicted Liked','Predicted Not Liked')
+ 
+MusicTest$correct1 = ifelse(MusicTest$target == MusicTest$prediction & MusicTest$target == 1, 1, 0)
+MusicTest$correct0 = ifelse(MusicTest$target == MusicTest$prediction & MusicTest$target == 0, 1, 0)
+MusicTest$type1 = ifelse(MusicTest$target-MusicTest$prediction == -1, 1, 0)
+MusicTest$type2 = ifelse(MusicTest$target-MusicTest$prediction == 1, 1, 0)
+
+
+
+
+# assign to table
+rightwrong =as.table(tableoferrors)
+rightwrong[1,1] = sum(MusicTest$correct1 == 1)/404
+rightwrong[2,1] = sum(MusicTest$type2 == 1)/404
+rightwrong[1,2] = sum(MusicTest$type1 == 1)/404
+rightwrong[2,2] = sum(MusicTest$correct0 == 1)/404
+# display
+rightwrong
+```
+Now, instead of missing 44.7% of the songs that you would like, you will only miss around 24.2% of the songs you would like. This does mean that about 37.3%, or a bit more than one in every three songs, you will not like, when it was 30.8% before. This roughly halves the number of missed songs that you would like, while only slightly increasing the number of displeasing songs you would have to listen to. 
+
+
+
+```{r}
+#min and max and averages for all of these type one and two and correct1 and correct0
+max1 = filter(MusicTest, type1 == 1)
+summary(max1$probability)
+max2 = filter(MusicTest, type2 == 1)
+summary(max2$probability)
+max3 = filter(MusicTest, correct1 == 1)
+summary(max3$probability)
+max4 = filter(MusicTest, correct0 == 1)
+summary(max4$probability)
+max5 = filter(MusicTest, prediction == 1)
+summary(max5$probability)
+max6 = filter(MusicTest, prediction == 0)
+summary(max6$probability)
+```
+
+
+for songs around 50% probability to like.... put them all together and see whats the real stats on how many of them are liked. It should be around 50%. Same with the songs in 15-25%, and the songs in 75-85%. See if the error seems right. 
